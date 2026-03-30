@@ -1,0 +1,37 @@
+server:
+  port: 8090
+
+# Expose Prometheus metrics endpoint and health
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health
+  metrics:
+    distribution:
+      # Enable percentile calculation for our custom timer
+      percentiles-histogram:
+        lab.request.latency: true
+      # Publish exact p50, p95, p99 percentiles
+      percentiles:
+        lab.request.latency: 0.5,0.95,0.99
+      # SLA buckets: count how many requests fall in each bucket
+      slo:
+        lab.request.latency: 50ms,100ms,200ms,500ms,1s
+
+# Our custom config for the latency simulator
+lab:
+  # Simulate different scenarios with weighted probability
+  # fast: cache hit, quick response (majority of requests)
+  # medium: DB read required (occasional)
+  # slow: cache miss + DB + some processing (rare)
+  # timeout: upstream timeout or GC pause (very rare)
+  fast-ms: 15
+  medium-ms: 120
+  slow-ms: 450
+  timeout-ms: 1500
+  # Probability weights (must sum to 100)
+  fast-weight: 70
+  medium-weight: 20
+  slow-weight: 8
+  timeout-weight: 2
