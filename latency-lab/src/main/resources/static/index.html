@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Latency Percentile Lab</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #94a3b8; font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card { background: #1e293b; border-radius: 8px; padding: 1rem; text-align: center; }
+    .stat-card .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 0.25rem; }
+    .stat-card .value { font-size: 1.8rem; font-weight: 700; }
+    .stat-card.p50 .value { color: #4ade80; }
+    .stat-card.p95 .value { color: #fbbf24; }
+    .stat-card.p99 .value { color: #f87171; }
+    .stat-card.avg .value { color: #60a5fa; }
+    .stat-card.count .value { color: #c084fc; }
+    .stat-card.max .value { color: #fb923c; }
+
+    .controls { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    button { padding: 0.5rem 1rem; border: none; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 600; transition: opacity 0.15s; }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-success { background: #22c55e; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-secondary { background: #475569; color: white; }
+
+    .chart-container { background: #1e293b; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
+    .chart-title { font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.75rem; }
+    canvas { width: 100%; height: 250px; }
+
+    .log { background: #1e293b; border-radius: 8px; padding: 1rem; max-height: 250px; overflow-y: auto; }
+    .log-title { font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.5rem; }
+    .log-entry { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.75rem; padding: 0.2rem 0; border-bottom: 1px solid #334155; }
+    .log-entry.fast { color: #4ade80; }
+    .log-entry.medium { color: #fbbf24; }
+    .log-entry.slow { color: #fb923c; }
+    .log-entry.timeout { color: #f87171; }
+
+    .insight { background: #1e293b; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; border-left: 3px solid #3b82f6; }
+    .insight p { font-size: 0.8rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 0.25rem; }
+    .insight strong { color: #e2e8f0; }
+  </style>
+</head>
+<body>
+
+  <h1>Latency Percentile Lab</h1>
+  <p class="subtitle">Hit the API, watch p50 / p95 / p99 change in real time</p>
+
+  <div class="controls">
+    <button class="btn-primary" onclick="fireOne()">Fire 1 Request</button>
+    <button class="btn-success" onclick="fireBatch(50)">Fire 50</button>
+    <button class="btn-success" onclick="fireBatch(200)">Fire 200</button>
+    <button class="btn-secondary" onclick="refresh()">Refresh Stats</button>
+    <button class="btn-danger" onclick="resetAll()">Reset All</button>
+    <span id="status" style="align-self:center; font-size:0.8rem; color:#94a3b8;"></span>
+  </div>
+
+  <div class="grid">
+    <div class="stat-card count"><div class="label">Requests</div><div class="value" id="count">0</div></div>
+    <div class="stat-card avg"><div class="label">Average</div><div class="value" id="avg">-</div></div>
+    <div class="stat-card p50"><div class="label">p50 (median)</div><div class="value" id="p50">-</div></div>
+    <div class="stat-card p95"><div class="label">p95</div><div class="value" id="p95">-</div></div>
+    <div class="stat-card p99"><div class="label">p99</div><div class="value" id="p99">-</div></div>
+    <div class="stat-card max"><div class="label">Max</div><div class="value" id="max">-</div></div>
+  </div>
+
+  <div id="insight" class="insight" style="display:none;">
+    <p id="insight-text"></p>
+  </div>
+
+  <div class="chart-container">
+    <div class="chart-title">Latency Distribution (histogram)</div>
+    <canvas id="histogram"></canvas>
+  </div>
+
+  <div class="log">
+    <div class="log-title">Request Log (newest first)</div>
+    <div id="log-entries"></div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    async function fireOne() {
+      setStatus('Firing...');
+      try {
+        const res = await fetch('/api/simulate', { method: 'POST' });
+        const data = await res.json();
+        addLog(data.scenario, data.latency_ms);
+        await refresh();
+        setStatus('Done');
+      } catch (e) {
+        setStatus('Error: ' + e.message);
+      }
+    }
+
+    async function fireBatch(n) {
+      setStatus(`Firing ${n} requests...`);
+      try {
+        const res = await fetch(`/api/simulate/batch?count=${n}`, { method: 'POST' });
+        const data = await res.json();
+        addLog(`Batch: ${data.requests_fired} requests in ${data.total_time_ms}ms`, 0);
+        await refresh();
+        setStatus('Done');
+      } catch (e) {
+        setStatus('Error: ' + e.message);
+      }
+    }
+
+    async function refresh() {
+      try {
+        const [percRes, samplesRes] = await Promise.all([
+          fetch('/api/percentiles'),
+          fetch('/api/samples'),
+        ]);
+        const perc = await percRes.json();
+        const samples = await samplesRes.json();
+
+        $('count').textContent = perc.count || 0;
+        $('avg').textContent = perc.avg_ms != null ? perc.avg_ms + 'ms' : '-';
+        $('p50').textContent = perc.p50_ms != null ? perc.p50_ms + 'ms' : '-';
+        $('p95').textContent = perc.p95_ms != null ? perc.p95_ms + 'ms' : '-';
+        $('p99').textContent = perc.p99_ms != null ? perc.p99_ms + 'ms' : '-';
+        $('max').textContent = perc.max_ms != null ? perc.max_ms + 'ms' : '-';
+
+        if (perc.count > 10) {
+          showInsight(perc);
+        }
+
+        if (samples.length > 0) {
+          drawHistogram(samples, perc);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    async function resetAll() {
+      await fetch('/api/reset', { method: 'POST' });
+      $('count').textContent = '0';
+      $('avg').textContent = '-';
+      $('p50').textContent = '-';
+      $('p95').textContent = '-';
+      $('p99').textContent = '-';
+      $('max').textContent = '-';
+      $('log-entries').innerHTML = '';
+      $('insight').style.display = 'none';
+      const canvas = $('histogram');
+      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+      setStatus('Reset complete');
+    }
+
+    function addLog(scenario, latencyMs) {
+      const el = document.createElement('div');
+      el.className = 'log-entry';
+      if (scenario.includes('fast')) el.className += ' fast';
+      else if (scenario.includes('medium')) el.className += ' medium';
+      else if (scenario.includes('slow')) el.className += ' slow';
+      else if (scenario.includes('timeout') || scenario.includes('Batch')) el.className += ' timeout';
+      el.textContent = `${new Date().toLocaleTimeString()} | ${scenario}`;
+      const log = $('log-entries');
+      log.insertBefore(el, log.firstChild);
+      // Keep max 50 entries
+      while (log.children.length > 50) log.removeChild(log.lastChild);
+    }
+
+    function setStatus(msg) {
+      $('status').textContent = msg;
+    }
+
+    function showInsight(perc) {
+      const div = $('insight');
+      const text = $('insight-text');
+      div.style.display = 'block';
+
+      const avgP50Ratio = perc.avg_ms / perc.p50_ms;
+      const p99P50Ratio = perc.p99_ms / perc.p50_ms;
+
+      let lines = [];
+      lines.push(`<strong>Average (${perc.avg_ms}ms) vs p50 (${perc.p50_ms}ms):</strong> ` +
+        (avgP50Ratio > 2
+          ? `Average is ${avgP50Ratio.toFixed(1)}x higher than median. This means outliers are dragging the average up. The "typical" user sees ${perc.p50_ms}ms, but the average says ${perc.avg_ms}ms -- misleading!`
+          : `Average and median are close. The distribution is fairly symmetric.`));
+
+      lines.push(`<strong>p99 (${perc.p99_ms}ms) vs p50 (${perc.p50_ms}ms):</strong> ` +
+        (p99P50Ratio > 10
+          ? `Your p99 is ${p99P50Ratio.toFixed(0)}x worse than p50. 1 in 100 users waits ${p99P50Ratio.toFixed(0)}x longer than the median user. This is a big tail.`
+          : p99P50Ratio > 3
+            ? `p99 is ${p99P50Ratio.toFixed(1)}x higher than p50. Moderate tail latency.`
+            : `Tight distribution. p99 is only ${p99P50Ratio.toFixed(1)}x higher than p50.`));
+
+      text.innerHTML = lines.join('<br><br>');
+    }
+
+    function drawHistogram(samples, perc) {
+      const canvas = $('histogram');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = 250 * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = canvas.clientWidth;
+      const h = 250;
+      ctx.clearRect(0, 0, w, h);
+
+      // Build histogram buckets
+      const maxVal = Math.max(...samples);
+      const bucketCount = Math.min(40, Math.max(10, Math.floor(samples.length / 5)));
+      const bucketSize = Math.ceil(maxVal / bucketCount) || 1;
+      const buckets = new Array(bucketCount).fill(0);
+
+      for (const s of samples) {
+        const idx = Math.min(Math.floor(s / bucketSize), bucketCount - 1);
+        buckets[idx]++;
+      }
+
+      const maxBucket = Math.max(...buckets);
+      const barWidth = (w - 60) / bucketCount;
+      const chartHeight = h - 40;
+      const left = 40;
+      const top = 10;
+
+      // Draw bars
+      for (let i = 0; i < bucketCount; i++) {
+        const barH = maxBucket > 0 ? (buckets[i] / maxBucket) * chartHeight : 0;
+        const x = left + i * barWidth;
+        const y = top + chartHeight - barH;
+        const bucketMs = i * bucketSize;
+
+        // Color based on zone
+        if (perc.p50_ms != null && bucketMs <= perc.p50_ms) {
+          ctx.fillStyle = '#4ade80';
+        } else if (perc.p95_ms != null && bucketMs <= perc.p95_ms) {
+          ctx.fillStyle = '#fbbf24';
+        } else {
+          ctx.fillStyle = '#f87171';
+        }
+
+        ctx.fillRect(x + 1, y, barWidth - 2, barH);
+      }
+
+      // Draw percentile lines
+      const drawLine = (value, color, label) => {
+        if (value == null) return;
+        const x = left + (value / bucketSize) * barWidth;
+        if (x > left && x < w - 10) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, top + chartHeight);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = color;
+          ctx.font = '11px sans-serif';
+          ctx.fillText(label, x + 3, top + 12);
+        }
+      };
+
+      drawLine(perc.p50_ms, '#4ade80', 'p50');
+      drawLine(perc.p95_ms, '#fbbf24', 'p95');
+      drawLine(perc.p99_ms, '#f87171', 'p99');
+
+      // X axis labels
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px sans-serif';
+      const labelStep = Math.max(1, Math.floor(bucketCount / 6));
+      for (let i = 0; i < bucketCount; i += labelStep) {
+        const x = left + i * barWidth;
+        ctx.fillText((i * bucketSize) + 'ms', x, top + chartHeight + 15);
+      }
+
+      // Legend
+      ctx.font = '10px sans-serif';
+      const legendY = h - 5;
+      ctx.fillStyle = '#4ade80'; ctx.fillRect(left, legendY - 8, 8, 8);
+      ctx.fillStyle = '#94a3b8'; ctx.fillText('< p50', left + 12, legendY);
+      ctx.fillStyle = '#fbbf24'; ctx.fillRect(left + 60, legendY - 8, 8, 8);
+      ctx.fillStyle = '#94a3b8'; ctx.fillText('p50-p95', left + 74, legendY);
+      ctx.fillStyle = '#f87171'; ctx.fillRect(left + 140, legendY - 8, 8, 8);
+      ctx.fillStyle = '#94a3b8'; ctx.fillText('> p95 (tail)', left + 154, legendY);
+    }
+
+    // Auto refresh on load
+    refresh();
+  </script>
+</body>
+</html>
