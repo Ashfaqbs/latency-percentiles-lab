@@ -1,0 +1,242 @@
+{
+  "title": "Latency Lab — p50 / p95 / p99",
+  "uid": "latency-lab",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+
+    {
+      "id": 1,
+      "title": "p50 (median) — ms",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "unit": "ms"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 0.3 }
+            ]
+          }
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "histogram_quantile(0.50, sum(rate(lab_request_latency_seconds_bucket[1m])) by (le))",
+        "legendFormat": "p50"
+      }]
+    },
+
+    {
+      "id": 2,
+      "title": "p95 — ms",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.2 },
+              { "color": "red", "value": 0.5 }
+            ]
+          }
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "histogram_quantile(0.95, sum(rate(lab_request_latency_seconds_bucket[1m])) by (le))",
+        "legendFormat": "p95"
+      }]
+    },
+
+    {
+      "id": 3,
+      "title": "p99 — ms",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1.0 }
+            ]
+          }
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "histogram_quantile(0.99, sum(rate(lab_request_latency_seconds_bucket[1m])) by (le))",
+        "legendFormat": "p99"
+      }]
+    },
+
+    {
+      "id": 4,
+      "title": "Request Rate (req/s)",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "sum(rate(lab_request_latency_seconds_count[1m]))",
+        "legendFormat": "req/s"
+      }]
+    },
+
+    {
+      "id": 5,
+      "title": "Total Requests",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "purple", "value": null }]
+          }
+        }
+      },
+      "targets": [{
+        "datasource": "Prometheus",
+        "expr": "sum(lab_request_latency_seconds_count)",
+        "legendFormat": "total"
+      }]
+    },
+
+    {
+      "id": 6,
+      "title": "p50 / p95 / p99 over time",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 10 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "p50" },  "properties": [{ "id": "color", "value": { "fixedColor": "green",  "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "p95" },  "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "p99" },  "properties": [{ "id": "color", "value": { "fixedColor": "red",    "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(lab_request_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(lab_request_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum(rate(lab_request_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "title": "Requests in each latency bucket (SLO view)",
+      "type": "timeseries",
+      "description": "How many requests per second fall into each latency bucket. Watch how the slow and timeout buckets spike after a batch run.",
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 10 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 1, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(lab_request_latency_seconds_bucket{le=\"0.05\"}[1m]))",
+          "legendFormat": "< 50ms (fast)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(lab_request_latency_seconds_bucket{le=\"0.1\"}[1m])) - sum(rate(lab_request_latency_seconds_bucket{le=\"0.05\"}[1m]))",
+          "legendFormat": "50–100ms"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(lab_request_latency_seconds_bucket{le=\"0.2\"}[1m])) - sum(rate(lab_request_latency_seconds_bucket{le=\"0.1\"}[1m]))",
+          "legendFormat": "100–200ms"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(lab_request_latency_seconds_bucket{le=\"0.5\"}[1m])) - sum(rate(lab_request_latency_seconds_bucket{le=\"0.2\"}[1m]))",
+          "legendFormat": "200–500ms (slow)"
+        },
+        {
+          "datasource": "Prometheus",
+          "expr": "sum(rate(lab_request_latency_seconds_bucket{le=\"+Inf\"}[1m])) - sum(rate(lab_request_latency_seconds_bucket{le=\"0.5\"}[1m]))",
+          "legendFormat": "> 500ms (timeout)"
+        }
+      ]
+    }
+
+  ]
+}
